@@ -31,30 +31,17 @@ module HWconstrained
 	end
 
 
-
-# DOES NOT WORK
 	function max_JuMP(a=0.5)
 		m = Model(with_optimizer(Ipopt.Optimizer))
-		a = 0.5
-		N = 3
-		@variable(m, omega[1:N] >= 0 )
-
-		#	@variable(m, c >= 0)
-
-		@objective(m, Max,
-			-exp(-a*c) + data()["pi"] * sum(-exp.(-a .*
-			sum(data()["z"][:,i] * x[i] for i = 1:3))))
-
-		@constraint(m, c + (sum(data()["p"] .* (X .- data()["e"]))) <= 0)
-
-		print(m)
-
-		status = optimize!(m)
-
-
+		@variable(m, omega[1:3])
+		@variable(m, c >= 0.0)
+		@NLconstraint(m, c + sum(data()["p"][i] * (omega[i] - data()["e"][i]) for i in 1:3) == 0.0)
+		@NLobjective(m, Max,
+			-exp(-a*c) + data()["pi"] * sum(-exp(-a *
+			sum(data()["z"][j,i] * omega[i] for i in 1:3)) for j in 1:data()["nss"]))
+		JuMP.optimize!(m)
 		return Dict("obj"=>objective_value(m),"c"=>value(c),"omegas"=>[value(omega[i]) for i in 1:length(omega)])
 	end
-
 
 
 
@@ -81,23 +68,24 @@ module HWconstrained
 		if length(grad) > 0
 			# grad wrt x1
 			a = 0.5
-			grad[1] = (-1) * sum(data["pi"] * (-a * data["z"][:,1]) * (- exp(-a * sum(data["z"][:,1] * x[1] +
-																				data["z"][:,2] * x[2] +
-																				data["z"][:,3] * x[3]))))
+			x=[1.0, 1.0, 1.0]
+			grad[1] = (-1) * sum(data["pi"] * (-a * data["z"][i,1]) * (- exp(-a * sum(data["z"][i,1] * x[1] +
+																				data["z"][i,2] * x[2] +
+																				data["z"][i,3] * x[3]))) for i in 1:data["nss"])
 			# grad wrt x2
-			grad[2] = (-1) * sum(data["pi"] * (-a * data["z"][:,2]) * (- exp(-a * sum(data["z"][:,1] * x[1] +
-																				data["z"][:,2] * x[2] +
-																				data["z"][:,3] * x[3]))))
+			grad[2] = (-1) * sum(data["pi"] * (-a * data["z"][i,2]) * (- exp(-a * sum(data["z"][i,1] * x[1] +
+																				data["z"][i,2] * x[2] +
+																				data["z"][i,3] * x[3]))) for i in 1:data["nss"])
 			# grad wrt x3
-			grad[3] = (-1) * sum(data["pi"] * (-a * data["z"][:,3]) * (- exp(-a * sum(data["z"][:,1] * x[1] +
-																				data["z"][:,2] * x[2] +
-																				data["z"][:,3] * x[3]))))
+			grad[3] = (-1) * sum(data["pi"] * (-a * data["z"][i,3]) * (- exp(-a * sum(data["z"][i,1] * x[1] +
+																				data["z"][i,2] * x[2] +
+																				data["z"][i,3] * x[3]))) for i in 1:data["nss"])
 			# grad wrt c
 			grad[4] = (-1) *  (-a) * (- exp(-a * c))
 		end
-		return (-1) * (-exp(-a*c) + data["pi"] * (- exp(-a * sum(data["z"][:,1] * x[1] +
-										data["z"][:,1] * x[2] +
-										data["z"][:,1] * x[3]))))
+		return (-1) * (-exp(-a*c) + sum(data["pi"] * (- exp(-a * sum(data["z"][i,1] * x[1] +
+										data["z"][i,1] * x[2] +
+										data["z"][i,1] * x[3]))) for i=1:data["nss"]))
 	end
 
 
@@ -107,7 +95,7 @@ module HWconstrained
 			grad[1] = data["p"][1]
 			grad[2] = data["p"][2]
 			grad[3] = data["p"][3]
-			#grad[4] = 1
+			grad[4] = 1
 		end
 		return (c +
 			data["p"][1] * (x[1] - data["e"][1]) +
@@ -120,14 +108,14 @@ module HWconstrained
 
 ### BOUND ISSUE --> problem on this function
 	function max_NLopt(a=0.5)
-
-		opt = Opt(:LD_MMA, 3)
-		lower_bounds!(opt, [0., 0., 0.])
+		opt = Opt(:LD_MMA, 4)
+		lower_bounds!(opt, [0., -Inf, -Inf, -Inf])
 		xtol_rel!(opt,1e-4)
 		min_objective!(opt,(x,grad) -> obj(x,grad,data()))
-		inequality_constraint!(opt, (x,grad) -> constr(x,grad))
+		inequality_constraint!(opt, (x,grad) -> constr(x,grad,data()))
 		ftol_rel!(opt,1e-9)
-		(minfunc,minx,ret) = NLopt.optimize(opt, [0.0, 0.0, 0.0])
+		vector_init = vcat(0.0, data()["e"])
+		NLopt.optimize(opt, vector_init)
 end
 #Bounds error
 
